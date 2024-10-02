@@ -11,7 +11,7 @@ To deploy this project run
 ```python
   git clone https://github.com/Romeo-debugger/ASLI-simple-object-detection
   cd ./ASLI-simple-object-detection
-  pip install torch torchvision opencv-python pyttsx3 jinja2
+  pip install torch torchvision opencv-python pyttsx3 jinja2 pandas ultralytics
   python3 ./prod.py
 ```
 
