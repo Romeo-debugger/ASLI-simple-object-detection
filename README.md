@@ -18,6 +18,6 @@ To deploy this project run
 
 ## Feedback
 
-If you have any feedback, please reach out to us at applesmpserver2@gmail.com or at Discord. 
-For any enquiries reach out to romeo1_dude
+If you have any feedback, please reach out to us at applesmpserver2@gmail.com or at Discord romeo1_dude.
+ 
 
