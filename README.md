@@ -11,13 +11,13 @@ To deploy this project run
 ```python
   git clone https://github.com/Romeo-debugger/ASLI-simple-object-detection
   cd ./ASLI-simple-object-detection
-  pip install torch torchvision opencv-python pyttsx3 jinja2 pandas ultralytics
+  pip install torch torchvision opencv-python pyttsx3 jinja2 pandas ultralytics wget
   python3 ./prod.py
 ```
 
 
 ## Feedback
 
-If you have any feedback, please reach out to us at applesmpserver2@gmail.com or at Discord romeo1_dude.
+If you have any feedback, please reach out to us at applesmpserver2@gmail.com or at Discord romeo1_dude. Made by Shravan Bharath.
  
 
