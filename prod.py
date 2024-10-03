@@ -6,17 +6,17 @@ import pyttsx3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
 from collections import Counter
-
+import wget
+url = "https://tse1.mm.bing.net/th?id=OIG4.qdBKLPqhUlj4goH.5_id&pid=ImgGn"
 # Load the YOLOv5s model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 model.eval()
-
+os.makedirs('static', exist_ok=True)
 # Initialize video capture
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
-    raise RuntimeError("Error: Could not open webcam.")
-
-os.makedirs('static', exist_ok=True)
+    print("Please Connect A Camera")
+    wget.download(url, 'static/video_feed.jpg')
 
 latest_frame = None
 detected_objects = Counter()
@@ -77,6 +77,7 @@ def update_frame():
                     detected_objects[model.names[cls]] += 1
 
         latest_frame = cv2.resize(frame, (640, 480))
+
         cv2.imwrite('static/video_feed.jpg', latest_frame)
         print(f"Frame updated: {time.time()}")  # Debug print
 
@@ -106,6 +107,7 @@ HTML_TEMPLATE = '''
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProjectZETA</title>
+<link rel="icon" href="https://tse1.mm.bing.net/th?id=OIG4.qdBKLPqhUlj4goH.5_id&pid=ImgGn" type="image/icon type">
 <style>
 body {
     display: flex;
@@ -211,7 +213,7 @@ class VideoStreamHandler(BaseHTTPRequestHandler):
         # Suppress default logging
         return
 
-server_address = ('', 8000)
+server_address = ('', 80)
 httpd = HTTPServer(server_address, VideoStreamHandler)
 print("Starting server on port 8000...")
 httpd.serve_forever()
