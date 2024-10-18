@@ -1,87 +1,67 @@
 import cv2
 import torch
-import os
 import threading
 import pyttsx3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
 from collections import Counter
-import wget
-url = "https://tse1.mm.bing.net/th?id=OIG4.qdBKLPqhUlj4goH.5_id&pid=ImgGn"
-# Load the YOLOv5s model
+
+# Load the YOLOv5 model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 model.eval()
-os.makedirs('static', exist_ok=True)
-# Initialize video capture
+
+# Initialize webcam
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
-    print("Please Connect A Camera")
-    wget.download(url, 'static/video_feed.jpg')
+    print("Error: Could not open webcam.")
 
-latest_frame = None
+# Initialize detected objects counter
 detected_objects = Counter()
 announcement_lock = threading.Lock()
 
 # Initialize text-to-speech engine
-engine = pyttsx3.init()
+engine = pyttsx3.init('espeak')
 engine.setProperty('rate', 150)
 
 def speak_objects(object_list):
     if object_list:
         message = ", ".join([f"{count} {name}" for name, count in object_list])
-        engine.say(message)
-        engine.runAndWait()
+        print(f"TTS: {message}") 
+        
+        tts_thread = threading.Thread(target=lambda: engine.say(message) or engine.runAndWait())
+        tts_thread.start()
 
 def update_frame():
-    global latest_frame, detected_objects
-    frame_count = 0
-    
+    global detected_objects
     while True:
         ret, frame = cap.read()
         if not ret:
             print("Error: Could not read frame.")
-            break
-
-        frame_count += 1
-        if frame_count % 4 != 0:  # Process every 4th frame
-            continue
-
-        # Resize frame for faster processing
-        resized_frame = cv2.resize(frame, (320, 240))
-
-        # Run inference
+            break    
+        resized_frame = cv2.resize(frame, (320, 240))   
         results = model(resized_frame)
-
-        # Clear previous detections
         with announcement_lock:
             detected_objects.clear()
+            for det in results.xyxy[0]:
+                conf = det[4].item()
+                if conf > 0.5:
+                    x1, y1, x2, y2 = map(int, det[:4].tolist())
+                    cls = int(det[5].item())
+                    label = f'{model.names[cls]}: {conf:.2f}'
 
-        # Process results
-        for det in results.xyxy[0]:
-            conf = det[4].item()
-            if conf > 0.5:
-                x1, y1, x2, y2 = map(int, det[:4].tolist())
-                cls = int(det[5].item())
-                label = f'{model.names[cls]}: {conf:.2f}'
-                
-                # Scale bounding box to original frame size
-                x1, y1, x2, y2 = [
-                    int(coord * (640 if i % 2 == 0 else 480) / (320 if i % 2 == 0 else 240))
-                    for i, coord in enumerate([x1, y1, x2, y2])
-                ]
-                
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    # Scale bounding box to original frame size
+                    x1, y1, x2, y2 = [int(coord * (640 if i % 2 == 0 else 480) / (320 if i % 2 == 0 else 240)) for i, coord in enumerate([x1, y1, x2, y2])]
+                    
+                    # Draw bounding box on the frame
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                with announcement_lock:
+                    # Count detected object
                     detected_objects[model.names[cls]] += 1
 
-        latest_frame = cv2.resize(frame, (640, 480))
-
-        cv2.imwrite('static/video_feed.jpg', latest_frame)
-        print(f"Frame updated: {time.time()}")  # Debug print
-
-threading.Thread(target=update_frame, daemon=True).start()
+        # Encode the frame as JPEG
+        _, jpeg_frame = cv2.imencode('.jpg', frame)
+        yield jpeg_frame.tobytes()
 
 def announce_objects():
     global detected_objects
@@ -100,6 +80,30 @@ def announce_objects():
 
 threading.Thread(target=announce_objects, daemon=True).start()
 
+# HTTP server to stream the video feed
+class VideoStreamHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(HTML_TEMPLATE.encode())
+        elif self.path.startswith('/video_feed'):
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+
+            for frame in update_frame():
+                self.wfile.write(b'--frame\r\n')
+                self.wfile.write(b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        else:
+            self.send_error(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        return  # Suppress default logging
+
+# HTML template with MJPEG stream and hamburger menu
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -107,7 +111,6 @@ HTML_TEMPLATE = '''
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProjectZETA</title>
-<link rel="icon" href="https://tse1.mm.bing.net/th?id=OIG4.qdBKLPqhUlj4goH.5_id&pid=ImgGn" type="image/icon type">
 <style>
 body {
     display: flex;
@@ -168,6 +171,45 @@ h1 {
 .button:hover {
     background-color: #45a049;
 }
+.hamburger {
+    display: none;
+    flex-direction: column;
+    cursor: pointer;
+}
+.hamburger div {
+    height: 4px;
+    width: 30px;
+    background: #333;
+    margin: 4px 0;
+}
+.menu {
+    display: none;
+    flex-direction: column;
+    background-color: #fff;
+    position: absolute;
+    top: 50px;
+    right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.menu a {
+    padding: 10px;
+    text-decoration: none;
+    color: #333;
+    border-bottom: 1px solid #eee;
+}
+.menu a:last-child {
+    border-bottom: none;
+}
+.menu a:hover {
+    background-color: #f0f0f0;
+}
+@media (max-width: 700px) {
+    .hamburger {
+        display: flex;
+    }
+}
 </style>
 </head>
 <body>
@@ -176,46 +218,35 @@ h1 {
     <h1>ProjectZETA</h1>
 </div>
 <div class="container">
-    <img id="video-feed" src="/static/video_feed.jpg" alt="Webcam Feed">
+    <img id="video-feed" src="/video_feed" alt="Webcam Feed">
 </div>
 <button class="button" onclick="location.reload();">Refresh Feed</button>
+
+<div class="hamburger" onclick="toggleMenu()">
+    <div></div>
+    <div></div>
+    <div></div>
+</div>
+<div class="menu" id="menu">
+    <a href="#">Feature 1</a>
+    <a href="#">Feature 2</a>
+    <a href="#">Feature 3</a>
+</div>
+
 <script>
-setInterval(function() {
-    document.getElementById('video-feed').src = "/static/video_feed.jpg?" + new Date().getTime();
-}, 100);
+function toggleMenu() {
+    var menu = document.getElementById('menu');
+    menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+}
 </script>
 </body>
 </html>
 '''
 
-class VideoStreamHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(HTML_TEMPLATE.encode())
-        elif self.path.startswith('/static/video_feed.jpg'):
-            self.send_response(200)
-            self.send_header('Content-type', 'image/jpeg')
-            self.end_headers()
-            try:
-                with open('static/video_feed.jpg', 'rb') as f:
-                    self.wfile.write(f.read())
-                print(f"Frame sent: {time.time()}")  # Debug print
-            except FileNotFoundError:
-                print("Error: video_feed.jpg not found.")
-                self.send_error(404)
-        else:
-            self.send_error(404)
-
-    def log_message(self, format, *args):
-        # Suppress default logging
-        return
-
-server_address = ('', 80)
+# Run the HTTP server
+server_address = ('', 8080)
 httpd = HTTPServer(server_address, VideoStreamHandler)
-print("Starting server on port 8000...")
+print("Starting server on port 8080...")
 httpd.serve_forever()
 
 # Release the capture when the server is stopped
